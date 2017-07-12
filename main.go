@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"os/user"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	yaml "gopkg.in/yaml.v1"
@@ -77,7 +80,8 @@ type Workflow struct {
 
 func main() {
 	root, _ = filepath.Abs(filepath.Dir(os.Args[0]))
-	configor.Load(&Config, path.Join(root, "config.yml"))
+	u, _ := user.Current()
+	configor.Load(&Config, path.Join(u.HomeDir, ".blight.yml"))
 	if Config.Token == "" {
 		fmt.Println("Define token")
 		os.Exit(1)
@@ -113,6 +117,12 @@ func main() {
 		"Indigo":    color.MagentaString,
 		"Red":       color.RedString,
 	}
+	exclude := []*regexp.Regexp{
+		regexp.MustCompile(`.*\[Server\].*`),
+		regexp.MustCompile(`.*\[Crafting\].*`),
+		regexp.MustCompile(`.*\[FS\].*`),
+		regexp.MustCompile(`.*\[UI\].*`),
+	}
 	sort.Slice(tasks, func(i, j int) bool {
 		task := Task{}
 		mapstructure.Decode(tasks[i], &task)
@@ -120,6 +130,8 @@ func main() {
 		mapstructure.Decode(tasks[j], &task2)
 		return task.CustomStatusID < task2.CustomStatusID
 	})
+
+TaskLoop:
 	for _, t := range tasks {
 		task := Task{}
 		mapstructure.Decode(t, &task)
@@ -138,13 +150,29 @@ func main() {
 			wfs = true
 		}
 
+		for _, re := range exclude {
+			if re.MatchString(task.Title) {
+				continue TaskLoop
+			}
+		}
+
 		task.V2ID, _ = strconv.Atoi(task.Permalink[len(task.Permalink)-9 : len(task.Permalink)])
 		status := statuses[task.CustomStatusID]
+		if status.Name == "Completed" {
+			continue
+		}
 		colorF := colors[status.Color]
-		fmt.Printf("%v — %v\n%v\n\n",
-			task.V2ID,
+		re := regexp.MustCompile(`\[[\w ,\.]*\]`)
+		branchName := strings.ToLower(strings.Replace(strings.TrimSpace(re.ReplaceAllString(task.Title, "")), " ", "-", -1))
+		re = regexp.MustCompile(`[\.,\(\)'"\\\/:;\!\?]+`)
+		branchName = re.ReplaceAllString(branchName, "")
+		re = regexp.MustCompile(`-{2,}`)
+		branchName = re.ReplaceAllString(branchName, "-")
+		branchName = strings.Replace(branchName, "_", "-", -1)
+		fmt.Printf("%v\n%v\nBranch: %v\n\n",
 			colorF(status.Name),
 			task.Title,
+			color.BlueString(fmt.Sprintf("%v-%v", task.V2ID, branchName)),
 		)
 	}
 
