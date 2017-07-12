@@ -17,8 +17,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/user"
-	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -30,9 +28,9 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/ideazxy/requests"
-	"github.com/jinzhu/configor"
 	"github.com/mitchellh/mapstructure"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 // tasksCmd represents the tasks command
@@ -50,13 +48,6 @@ to quickly create a Cobra application.`,
 	},
 }
 
-type ConfigStruct struct {
-	Token    string `default:""`
-	Folder   int    `default:"0"`
-	FolderV3 string `default:""`
-}
-
-var Config = ConfigStruct{}
 var root string
 
 type Response struct {
@@ -122,30 +113,39 @@ func init() {
 
 }
 
+var token string
+var folder int
+var folderV3 string
+
 func tasks() {
 	root, _ = filepath.Abs(filepath.Dir(os.Args[0]))
-	u, _ := user.Current()
-	configor.Load(&Config, path.Join(u.HomeDir, ".blight.yml"))
-	if Config.Token == "" {
+	token = viper.GetString("Token")
+	folder = viper.GetInt("Folder")
+	folderV3 = viper.GetString("FolderV3")
+
+	if token == "" {
 		fmt.Println("Define token")
 		os.Exit(1)
 	}
-	if Config.Folder == 0 {
+	if folder == 0 {
 		fmt.Println("Define folder")
 		os.Exit(1)
 	}
 
-	if Config.FolderV3 == "" {
+	if folderV3 == "" {
 		rq := get("ids", map[string]string{
 			"type": "ApiV2Folder",
-			"ids":  fmt.Sprintf("[%v]", Config.Folder),
+			"ids":  fmt.Sprintf("[%v]", folder),
 		})
 		resp := Response{}
 		rq.Json(&resp)
-		Config.FolderV3 = resp.Data[0].(IDResponse).ID
+		id := IDResponse{}
+		mapstructure.Decode(resp.Data[0], &id)
+		folderV3 = id.ID
+		viper.Set("FolderV3", folderV3)
 		saveConfig()
 	}
-	rq := get(fmt.Sprintf("folders/%v/tasks", Config.FolderV3), nil)
+	rq := get(fmt.Sprintf("folders/%v/tasks", folderV3), nil)
 	resp := Response{}
 	rq.Json(&resp)
 	tasks := resp.Data
@@ -228,7 +228,7 @@ func NewTask(data interface{}) Task {
 
 func get(url string, args map[string]string) *requests.HttpResponse {
 	rq := requests.Get(fmt.Sprintf("https://www.wrike.com/api/v3/%v", url))
-	rq.SetHeader("Authorization", fmt.Sprintf("bearer %v", Config.Token))
+	rq.SetHeader("Authorization", fmt.Sprintf("bearer %v", token))
 	for k, v := range args {
 		rq.AddParam(k, v)
 	}
@@ -239,8 +239,8 @@ func get(url string, args map[string]string) *requests.HttpResponse {
 }
 
 func saveConfig() {
-	d, _ := yaml.Marshal(&Config)
-	err := ioutil.WriteFile(path.Join(root, "config.yml"), d, 0644)
+	d, _ := yaml.Marshal(viper.AllSettings())
+	err := ioutil.WriteFile(viper.ConfigFileUsed(), d, 0644)
 	if err != nil {
 		fmt.Println(err)
 	}
