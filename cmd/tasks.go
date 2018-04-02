@@ -37,7 +37,7 @@ import (
 var tasksCmd = &cobra.Command{
 	Use:   "tasks",
 	Short: "List tasks in defined folder",
-	Long: `List tasks from folder with statuses and branch names`,
+	Long:  `List tasks from folder with statuses and branch names`,
 	Run: func(cmd *cobra.Command, args []string) {
 		tasks()
 	},
@@ -184,10 +184,13 @@ TaskLoop:
 
 		task.V2ID, _ = strconv.Atoi(task.Permalink[len(task.Permalink)-9 : len(task.Permalink)])
 		status := statuses[task.CustomStatusID]
-		if status.Name == "Completed" {
+		if status.Name == "Completed" || status.Name == "Deployed" {
 			continue
 		}
-		colorF := colors[status.Color]
+		colorF, ok := colors[status.Color]
+		if !ok {
+			colorF = colors["Green"]
+		}
 		re := regexp.MustCompile(`\[[\w ,\.]*\]`)
 		branchName := strings.ToLower(strings.Replace(strings.TrimSpace(re.ReplaceAllString(task.Title, "")), " ", "-", -1))
 		re = regexp.MustCompile(`[\.,\(\)'"\\\/:;\!\?]+`)
